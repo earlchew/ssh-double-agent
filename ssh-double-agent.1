@@ -1,0 +1,100 @@
+.\"  -*- nroff -*-
+.\"
+.\" Copyright (c) 2022, Earl Chew
+.\" All rights reserved.
+.\"
+.\" Redistribution and use in source and binary forms, with or without
+.\" modification, are permitted provided that the following conditions are met:
+.\"
+.\" 1. Redistributions of source code must retain the above copyright notice,
+.\"    this list of conditions and the following disclaimer.
+.\"
+.\" 2. Redistributions in binary form must reproduce the above copyright notice,
+.\"    this list of conditions and the following disclaimer in the documentation
+.\"    and/or other materials provided with the distribution.
+.\"
+.\" THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+.\" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+.\" IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+.\" ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+.\" LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+.\" CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+.\" SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+.\" INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+.\" CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+.\" ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+.\" POSSIBILITY OF SUCH DAMAGE.
+
+.Dd Dec 11, 2022
+.Dt SSH-DOUBLE-AGENT 1
+.Os
+.Sh NAME
+.Nm ssh-double-agent
+.Nd create primary and fallback ssh agents
+.Sh SYNOPSIS
+.Nm ssh-double-agent
+.Op Fl d
+.Op Fl h
+.Ar [ primary-path ]
+.Ar fallback-path
+.Ar double-agent-path
+.Ar \-\-
+.Ar cmd ...
+.Sh DESCRIPTION
+.Nm
+is a program that creates an agent facade that coordinates
+interaction between primary and fallback ssh agents. This is useful
+to combine a primary ssh session agent, with a fallback login session agent,
+in conjunction with the
+.Cm AddKeysToAgent
+directive in
+.Xr ssh_config 5 .
+.Pp
+Using
+.Nm ,
+both the primary ssh session agent and the fallback login session agent
+are consulted when seaching for keys that have already been loaded,
+but the key and password are only added to the primary ssh session agent
+when the ssh client obtains the credentials from a file.
+.Pp
+If
+.Ar primary-path
+is not provided, the path of the UNIX-domain socket used to
+communicate with the primary ssh session agent is obtained from
+the environment variable SSH_AUTH_SOCK.
+.Pp
+The
+.Ar double-agent-path
+names the path of the UNIX-domain socket used by
+.Ar cmd
+to access the double agent.
+To achieve this,
+.Nm
+will reset SSH_AUTH_SOCK to name
+.Ar double-agent-path
+before executing
+.Ar cmd .
+.Sh OPTIONS
+.Bl -tag -width Ds
+.It Fl d Fl \-debug
+Print debugging information.
+.It Fl h Fl \-help
+Print help summary.
+.El
+.Sh EXIT STATUS
+.Nm
+will mirror the exit status of the specified command.
+.Sh EXAMPLES
+Start an ssh session that uses the credentials that have already
+been loaded into the fallback login agent that is accessed via
+SSH_AUTH_SOCK, places additional credentials into a
+primary session agent, and uses /tmp/ssh-agent.$$ as the UNIX-domain
+socket path for the double agent:
+.Pp
+.Dl $ ssh-agent ssh-double-agent $SSH_AUTH_SOCK /tmp/ssh-agent.$$ -- ssh -o AddKeysToAgent=confirm user@example.com
+.Sh AUTHOR
+.Nm
+was written by Earl Chew.
+.Sh SEE ALSO
+.Xr ssh 1 ,
+.Xr ssh-agent 1
