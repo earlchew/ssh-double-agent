@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+
+set -eu
+
+main()
+{
+    local PASSWD=
+
+    [ -z "${GITPASSWD:++}" ] || PASSWD=$(< "$GITPASSWD")
+
+    [ -n "$PASSWD" ] || {
+        echo "${1-Password}" >/dev/tty
+        {
+            local TTYCONFIG=$(stty --save)
+
+            stty -echo
+
+            local RC=0
+            PASSWD=$(head -1) || :
+
+            stty $TTYCONFIG
+
+        } </dev/tty
+    }
+
+    printf '%s\n' "$PASSWD"
+}
+
+main "$@"

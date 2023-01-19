@@ -1,0 +1,162 @@
+#!/usr/bin/env bash
+
+[ -z "${0##/*}" ] || exec "$PWD/$0" "$@"
+
+set -eu
+
+say()
+{
+    printf '%s\n' "$*"
+}
+
+die()
+{
+    say "${0##*/}: $*" >&2
+    exit 1
+}
+
+expect()
+{
+    [ "$1" "$2" "$3" ] ||
+        die "Unexpected at line $BASH_LINENO : $1 $2 $3"
+}
+
+test_agent()
+{
+    local BEFORE=$1 ; shift
+    local AFTER=$1 ; shift
+
+    local AUTH_SOCK_DIR="/tmp/ssh-double-agent-test-$$"
+    mkdir -p "$AUTH_SOCK_DIR"
+
+    local AUTH_SOCK=$(mktemp "$AUTH_SOCK_DIR/XXXXXX")
+    rm -f "$AUTH_SOCK"
+
+    local CLEANUP='rm -rf "$AUTH_SOCK_DIR"'
+
+    say "AUTH_SOCK=$AUTH_SOCK"
+
+    trap "$CLEANUP" EXIT
+    ssh-agent "$SHELL" -ecx "
+        printenv | grep SSH_AUTH_SOCK >&2
+        export FALLBACK_SSH_AUTH_SOCK=\"\$SSH_AUTH_SOCK\"
+        ssh-add "${0%/*}/id_rsa_fallback"
+        ssh-add -l >&2
+        $BEFORE
+        ssh-agent sh -ecx '
+            printenv | grep SSH_AUTH_SOCK >&2
+            export PRIMARY_SSH_AUTH_SOCK=\"\$SSH_AUTH_SOCK\"
+            ssh-add "${0%/*}/id_rsa_primary"
+            ssh-add -l >&2
+            set --
+            set -- \"\$@\" -d '\"\$SSH_AUTH_SOCK\"'
+            set -- \"\$@\" '$AUTH_SOCK'
+            set -- \"\$@\" -- env PS4=++ '\"\$SHELL\"' -ecx '\''
+                ssh-add -l >&2
+                date >&2
+                ssh-add "${0%/*}/id_rsa_test"
+                date >&2
+                ssh-add -l >&2
+                date >&2
+                SSH_AUTH_SOCK=\$FALLBACK_SSH_AUTH_SOCK ssh-add -l >&2
+                date >&2
+                SSH_AUTH_SOCK=\$PRIMARY_SSH_AUTH_SOCK ssh-add -l >&2
+                date >&2
+                printenv | grep AUTH_SOCK >&2
+                $AFTER'\''
+            set -- "${0%/*}/../ssh-double-agent" \"\$@\"
+            ${VALGRIND:+$VALGRIND --track-fds=yes --error-exitcode=127} \"\$@\"
+        '"
+    trap - EXIT
+
+    eval "$CLEANUP"
+}
+
+run_test()
+{
+    say
+    say '========================================'
+    say "Checking $1"
+    ( "$@" )
+}
+
+test_fallback_auth_sock()
+{
+    local RESULT
+    RESULT=$(
+        test_agent printenv true |
+        awk -F= '$1 == "SSH_AUTH_SOCK" { print $2 }' |
+        uniq -c |
+        awk '{print $1}'
+    )
+    expect "$RESULT" -eq 1
+}
+
+test_double_agent_auth_sock()
+{
+    local RESULT
+    RESULT=$(
+        test_agent true printenv |
+        awk -F= '$1 == "SSH_AUTH_SOCK" || $1 == "AUTH_SOCK" { print $2 }' |
+        uniq -c |
+        awk '{print $1}'
+    )
+    expect "$RESULT" -eq 2
+}
+
+test_github_client()
+{
+    [ -n "${GITKEY:++}" ]     || local GITKEY=~/.ssh/ids/github.com/git/id_rsa
+    [ -n "${GITREMOTE:++}" ]  || local GITREMOTE=git@github.com
+    [ -n "${GITREPO:++}" ]    || local GITREPO=earlchew/empty.git
+    [ -n "${GITPASSWD:++}" ]  || export GITPASSWD=/dev/null
+
+    export SSH_ASKPASS_REQUIRE=force
+    export SSH_ASKPASS=${0%/*}/gitaskpass
+
+    local RESULT
+    RESULT=$(
+        local SSHCLIENT='
+            exec < <(
+                set --
+                set -- "$@" -o StrictHostKeyChecking=no
+                set -- "$@" -o UserKnownHostsFile=/dev/null
+                set -- "$@" '\'"$GITREMOTE"\'' git-upload-pack
+                exec ssh -F none -T "$@" '\'"$GITREPO"\'' </dev/null
+            )
+            read -r -N 1 PKT1 || :
+            read -r -N 1 PKT2 || :
+            read -r -N 1 PKT3 || :
+            read -r -N 1 PKT4 || :
+            kill $! || :
+            printf 'RESULT=%s' "$PKT1$PKT2$PKT3$PKT4"'
+
+        local SSHADD
+        SSHADD='ssh-add '\'"$GITKEY"\'
+
+        test_agent "$SSHADD" "$SSHCLIENT" |
+        awk -F= '$1 == "RESULT"'
+    ) || :
+    expect x"$RESULT" != x""
+    expect x"${RESULT#RESULT=}" != x"$RESULT"
+    expect x"${RESULT#RESULT=}" != x""
+}
+
+test_done()
+{
+    expect 0 -eq 0
+}
+
+main()
+{
+    chmod og-rwx "${0%/*}"/id_*
+
+    run_test test_fallback_auth_sock
+    run_test test_double_agent_auth_sock
+
+    run_test test_github_client
+
+    run_test test_done
+}
+
+main "$@"
