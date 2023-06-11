@@ -1068,16 +1068,38 @@ run_double_agent(struct Agent *self)
         goto Finally;
     }
 
-    DEBUG("Parent pid %d\n", self->mParentPid);
-    processFd = proc_fd(self->mParentPid);
+    pid_t parentPid = self->mParentPid;
+
+    DEBUG("Parent pid %d\n", parentPid);
+    processFd = proc_fd(parentPid);
     if (-1 == processFd) {
-        die("Unable to create descriptor to pid %d", self->mParentPid);
-        goto Finally;
+        if (ESRCH != errno) {
+            die("Unable to create descriptor to pid %d", parentPid);
+            goto Finally;
+        }
+
+        /* The child process has been orphaned, and now adopted by an
+         * ancestor (likely init(1)). The parent no longer accessible,
+         * so force the parent pid to be zero to ensure that it will not
+         * match anything returned by getppid(2).
+         */
+
+        parentPid = 0;
     }
 
     int numConnections = 0;
 
-    while (1) {
+    /* Note that parent termination will race proc_fd(), so it is
+     * also theoretically possible that proc_fd() succeeds but
+     * binds to a new process that acquired the process pid previously
+     * belonging to the parent.
+     *
+     * Since getppid(2) must return an ancestor, and that ancestor
+     * was pre-existing, it is sufficient to compare the result from
+     * getppid(2) to detect this case.
+     */
+
+    while (getppid() == parentPid) {
 
         DEBUG("Reaping processes");
 
