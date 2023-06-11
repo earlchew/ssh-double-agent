@@ -1,7 +1,7 @@
-# SSH Double Agents
+# SSH Double Agent
 
 **ssh-double-agent** orchestrates interactions between
-a SSH client and two SSH agents: a readonly fallback agent,
+an SSH client and two SSH agents: a readonly fallback agent,
 and a primary agent. When run, **ssh-double-agent**
 populates `SSH_AUTH_SOCK` to refer to itself before
 starting a command, which is typically an SSH client.
@@ -18,12 +18,12 @@ such as a request to add a key, are only performed by
 the primary agent.
 
 The **ssh-double-agent** is useful for scenarios
-where the keys must be available in an agent, but
-only retained for the duration of a particular
-session. Rather than adding the key to the GUI
-keyring, the **ssh-double-agent** can be used
+where the keys must be added to an agent, but
+only retained for the duration of a session.
+Rather than adding the key to the GUI
+keyring, a **ssh-double-agent** can be used
 to stage a transient agent, while also providing
-access to keys already loaded into the GUI
+readonly access to keys already loaded into the GUI
 keyring.
 
 ## Getting Started
